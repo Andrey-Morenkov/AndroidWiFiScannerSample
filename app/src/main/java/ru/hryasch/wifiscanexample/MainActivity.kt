@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.location.LocationManager
 import android.net.wifi.ScanResult
+import android.net.wifi.WifiConfiguration
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.provider.Settings
@@ -14,14 +15,15 @@ import android.util.Log
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.ListView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.nabinbhandari.android.permissions.PermissionHandler
 import com.nabinbhandari.android.permissions.Permissions
-import java.lang.Exception
 
 
 class MainActivity : AppCompatActivity()
 {
+    private lateinit var myConnectButton: Button
     private lateinit var myButton: Button
     private lateinit var myList: ListView
     private lateinit var wifiManager: WifiManager
@@ -31,13 +33,14 @@ class MainActivity : AppCompatActivity()
     private var isInitialized = false
     private lateinit var lm:LocationManager
     private lateinit var gpsReceiver: BroadcastReceiver
-    private var isScanning = false
+    private lateinit var wifiStateReceiver: BroadcastReceiver
 
     override fun onCreate(savedInstanceState: Bundle?)
     {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        myConnectButton = findViewById(R.id.myConnectButton)
         myButton = findViewById(R.id.mybutton)
         myList = findViewById(R.id.mylist)
 
@@ -54,6 +57,72 @@ class MainActivity : AppCompatActivity()
             }
         }
 
+        wifiStateReceiver = object: BroadcastReceiver() {
+            override fun onReceive(p0: Context?, p1: Intent?)
+            {
+                Log.d("ActionOnAir:", "$p1")
+                if (p1!!.action!! == WifiManager.SUPPLICANT_STATE_CHANGED_ACTION )
+                {
+                    if (checkWiFi())
+                    {
+                        Toast.makeText(this@MainActivity, "CONNECTED", Toast.LENGTH_SHORT).show()
+                        try
+                        {
+                            unregisterReceiver(this)
+                        }
+                        catch (e: Exception)
+                        {
+                            Log.d("4345345", "already unregistered")
+                        }
+                    }
+                    else
+                    {
+                        Toast.makeText(this@MainActivity, "DISCONNECTED", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                else
+                {
+                    Log.d("WTF", "MSG: ${intent.action!!}, EXPECTED: ${WifiManager.SUPPLICANT_STATE_CHANGED_ACTION}")
+                }
+            }
+        }
+
+        myConnectButton.setOnClickListener {
+
+            //Old way
+            val networkSampleSSID = "Hryasch's WLAN"
+            val networkSamplePass = "SamplePass"
+            val configuration = WifiConfiguration()
+            configuration.SSID = "\"" + networkSampleSSID + "\""
+            configuration.preSharedKey = "\"" + networkSamplePass + "\""
+            wifiManager.addNetwork(configuration)
+
+            val list = wifiManager.configuredNetworks
+            for (i in list)
+            {
+                if (i.SSID != null && i.SSID == "\"" + networkSampleSSID + "\"")
+                {
+                    wifiManager.disconnect()
+
+                    try
+                    {
+                        registerReceiver(wifiStateReceiver, IntentFilter(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION))
+                    }
+                    catch (e: Exception)
+                    {
+                        Log.d("4345345", "already registered")
+                    }
+
+                    wifiManager.enableNetwork(i.networkId, true)
+                    wifiManager.reconnect()
+                    Log.d("4345345", "try to connect....")
+                    break
+                }
+            }
+        }
+
+        myConnectButton.isEnabled = false
+
         myButton.setOnClickListener {
             Permissions
                 .check(this,
@@ -65,7 +134,7 @@ class MainActivity : AppCompatActivity()
                     {
                         override fun onGranted()
                         {
-                            isScanning = true
+                            myConnectButton.isEnabled = true
                             tryScan()
                         }
                     })
@@ -111,6 +180,13 @@ class MainActivity : AppCompatActivity()
         return gpsEnabled && networkEnabled
     }
 
+    private fun checkWiFi(): Boolean
+    {
+        val info = wifiManager.connectionInfo
+        Log.d("785675", "Connected to: ${info.ssid} ${info.bssid}")
+        return info.bssid != null
+    }
+
     private fun startScan()
     {
         if (!wifiManager.isWifiEnabled)
@@ -145,7 +221,6 @@ class MainActivity : AppCompatActivity()
         {
             results = wifiManager.scanResults
             unregisterReceiver(this)
-            isScanning = false
             Log.i("11111111", "unregister receiver")
 
             for (scanResult in results)
